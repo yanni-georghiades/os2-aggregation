@@ -63,11 +63,11 @@ func main() {
 		},
 	}
 
-	dist, minPoint, maxPoint := logisticPoolingRiskItems(testRiskItemInputs)
+	dist := logisticPoolingRiskItems(testRiskItemInputs)
 
-	// fmt.Println(dist)
+	fmt.Println(dist)
 
-	plotDistribution(dist, minPoint, maxPoint)
+	plotDistribution(dist)
 
 }
 
@@ -77,11 +77,18 @@ func computeMean(est ThreePointEstimate) float64 {
 }
 
 func computeStdDev(est ThreePointEstimate) float64 {
-	mean := computeMean(est)
-	return math.Sqrt((mean - est.lowPoint)*(est.highPoint - mean)/7)
+	return (est.highPoint - est.lowPoint) / 6
 }
 
-func linearPoolingRiskItems(inputs []RiskItemInput) ([]float64, float64, float64) {
+func computeAlpha(est ThreePointEstimate) float64 {
+	return 4 * (est.midPoint - est.lowPoint) / (est.highPoint - est.lowPoint) + 1
+}
+
+func computeBeta(est ThreePointEstimate) float64 {
+	return 4 * (est.highPoint - est.midPoint) / (est.highPoint - est.lowPoint) + 1
+}
+
+func linearPoolingRiskItems(inputs []RiskItemInput) ThreePointEstimate {
 	ests := []ThreePointEstimate{}
 
 	for i := 0; i < len(inputs); i++ {
@@ -91,7 +98,7 @@ func linearPoolingRiskItems(inputs []RiskItemInput) ([]float64, float64, float64
 	return linearPooling(ests)
 }
 
-func linearPoolingRiskEvents(inputs []RiskEventInput) ([]float64, float64, float64, float64) {
+func linearPoolingRiskEvents(inputs []RiskEventInput) (ThreePointEstimate, float64) {
 	ests := []ThreePointEstimate{}
 	sumLikelihood := float64(0)
 
@@ -100,31 +107,30 @@ func linearPoolingRiskEvents(inputs []RiskEventInput) ([]float64, float64, float
 		sumLikelihood += inputs[i].likelihood
 	}
 
-	dist, minPoint, maxPoint := linearPooling(ests)
+	dist := linearPooling(ests)
 
-	return dist, minPoint, maxPoint, sumLikelihood / float64(len(inputs))
+	return dist, sumLikelihood / float64(len(inputs))
 }
 
 
-func linearPooling(inputs []ThreePointEstimate) ([]float64, float64, float64) {
-	inputBases, minPoint, maxPoint := constructInputBases(inputs)
+func linearPooling(inputs []ThreePointEstimate) ThreePointEstimate {
+	pooled := ThreePointEstimate{float64(0), float64(0), float64(0)}
 
-	pooledBasis := []float64{}
-
-	for i := 0; i < len(inputBases[0]); i++ {
-		point := float64(0)
-		for j := 0; j < len(inputBases); j++ {
-			point += inputBases[j][i]
-		}
-
-		pooledBasis = append(pooledBasis, point / float64(len(inputBases)))
+	for i := 0; i < len(inputs); i++ {
+		pooled.lowPoint += inputs[i].lowPoint
+		pooled.midPoint += inputs[i].midPoint
+		pooled.highPoint += inputs[i].highPoint
 	}
 
-	return pooledBasis, minPoint, maxPoint
+	pooled.lowPoint /= float64(len(inputs))
+	pooled.midPoint /= float64(len(inputs))
+	pooled.highPoint /= float64(len(inputs))
+
+	return pooled
 }
 
 
-func logisticPoolingRiskItems(inputs []RiskItemInput) ([]float64, float64, float64) {
+func logisticPoolingRiskItems(inputs []RiskItemInput) ThreePointEstimate {
 	ests := []ThreePointEstimate{}
 
 	for i := 0; i < len(inputs); i++ {
@@ -134,7 +140,7 @@ func logisticPoolingRiskItems(inputs []RiskItemInput) ([]float64, float64, float
 	return logisticPooling(ests)
 }
 
-func logisticPoolingRiskEvents(inputs []RiskEventInput) ([]float64, float64, float64, float64) {
+func logisticPoolingRiskEvents(inputs []RiskEventInput) (ThreePointEstimate, float64) {
 	ests := []ThreePointEstimate{}
 	sumLikelihood := float64(0)
 
@@ -143,76 +149,66 @@ func logisticPoolingRiskEvents(inputs []RiskEventInput) ([]float64, float64, flo
 		sumLikelihood += inputs[i].likelihood
 	}
 
-	dist, minPoint, maxPoint := logisticPooling(ests)
+	dist := logisticPooling(ests)
 
-	return dist, minPoint, maxPoint, sumLikelihood /float64(len(inputs))
+	return dist, sumLikelihood /float64(len(inputs))
 }
 
 
-func logisticPooling(inputs []ThreePointEstimate) ([]float64, float64, float64) {
-	inputBases, minPoint, maxPoint := constructInputBases(inputs)
+func logisticPooling(inputs []ThreePointEstimate) ThreePointEstimate {
 
-	pooledBasis := []float64{}
-
-	for i := 0; i < len(inputBases[0]); i++ {
-		point := 1.0
-		for j := 0; j < len(inputBases); j++ {
-			point *= inputBases[j][i]
-		}
-
-		pooledBasis = append(pooledBasis, math.Pow(point, float64(1) / float64(len(inputBases))))
-	}
-
-	return pooledBasis, minPoint, maxPoint
-}
-
-func constructInputBases(inputs []ThreePointEstimate) ([][]float64, float64, float64) {
-
-	inputBases := [][]float64{}
-	minPoint, maxPoint := determineOutputRange(inputs)
-	interval := (maxPoint - minPoint) / 1000
+	pooled := ThreePointEstimate{1, 1, 1}
 
 	for i := 0; i < len(inputs); i++ {
-		mean := computeMean(inputs[i])
-		std := computeStdDev(inputs[i])
-		dist := distuv.Normal {
-			Mu: mean,
-			Sigma: std,
-		}
-
-		basis := []float64{}
-
-		for j := minPoint; j < maxPoint; j += interval  {
-			point := dist.CDF(j + interval) - dist.CDF(j)
-			basis = append(basis, point)
-		}
-
-		inputBases = append(inputBases, basis)
+		pooled.lowPoint *= inputs[i].lowPoint
+		pooled.midPoint *= inputs[i].midPoint
+		pooled.highPoint *= inputs[i].highPoint
 	}
-	return inputBases, minPoint, maxPoint
+
+	pooled.lowPoint = math.Pow(pooled.lowPoint, float64(1) / float64(len(inputs)))
+	pooled.midPoint = math.Pow(pooled.midPoint, float64(1) / float64(len(inputs)))
+	pooled.highPoint = math.Pow(pooled.highPoint, float64(1) / float64(len(inputs)))
+
+	return pooled
 }
 
-func determineOutputRange(inputs []ThreePointEstimate) (float64, float64) {
-	minPoint := computeMean(inputs[0]) - 8 * computeStdDev(inputs[0])
-	maxPoint := computeMean(inputs[0]) + 8 * computeStdDev(inputs[0])
 
-	for i := 1; i < len(inputs); i++ {
-		mean := computeMean(inputs[i])
-		std := computeStdDev(inputs[i])
+// constructInputBases takes the set of three point estimates as an input and returns 
+func constructPlotPoints(input ThreePointEstimate) ([]float64, float64, float64) {
 
-		min := mean - 8 * std
-		max := mean + 8 * std
+	points := []float64{}
 
-		if(min < minPoint) {
-			minPoint = min
-			maxPoint = max
-		}
+	alpha := computeAlpha(input)
+	beta := computeBeta(input)
+	dist := distuv.Beta {
+		Alpha: alpha,
+		Beta: beta,
 	}
+	
+	minPoint, maxPoint := determineOutputRange(input)
+
+	for j := 0.; j <= 1.; j += .001  {
+		point := dist.Prob(j) 
+		points = append(points, point)
+	}
+
+	return points, minPoint, maxPoint
+}
+
+
+// determineOutputRange is used to dynamically size the range of x values depending on data provided
+// using a conservative estimate of 8 standard deviations below and above the mean 
+func determineOutputRange(input ThreePointEstimate) (float64, float64) {
+	minPoint := input.lowPoint
+	maxPoint := input.highPoint
 
 	return minPoint, maxPoint
 }
 
-func plotDistribution(points []float64, minPoint float64, maxPoint float64) {
+// plotDistribution plots a single distribution "points" and uses minPoint and maxPoint to determine the x values
+func plotDistribution(dist ThreePointEstimate) {
+	points, minPoint, maxPoint := constructPlotPoints(dist)
+
 	p := plot.New()
 
 	p.Title.Text = "Test plot" 
@@ -233,7 +229,7 @@ func plotDistribution(points []float64, minPoint float64, maxPoint float64) {
 
     p.Add(s)
 
-    if err := p.Save(4*vg.Inch, 4*vg.Inch, "points.png"); err != nil {
+    if err := p.Save(6*vg.Inch, 6*vg.Inch, "distribution.png"); err != nil {
 		panic(err)
 	}
 }
