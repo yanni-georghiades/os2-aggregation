@@ -174,7 +174,7 @@ func logisticPooling(inputs []ThreePointEstimate) ThreePointEstimate {
 
 
 // constructInputBases takes the set of three point estimates as an input and returns 
-func constructPlotPoints(input ThreePointEstimate) ([]float64, float64, float64) {
+func constructPlotPoints(input ThreePointEstimate) Distribution {
 
 	points := []float64{}
 
@@ -192,7 +192,7 @@ func constructPlotPoints(input ThreePointEstimate) ([]float64, float64, float64)
 		points = append(points, point)
 	}
 
-	return points, minPoint, maxPoint
+	return Distribution{points, minPoint, maxPoint}
 }
 
 
@@ -206,17 +206,17 @@ func determineOutputRange(input ThreePointEstimate) (float64, float64) {
 }
 
 // plotDistribution plots a single distribution "points" and uses minPoint and maxPoint to determine the x values
-func plotDistribution(dist ThreePointEstimate) {
-	points, minPoint, maxPoint := constructPlotPoints(dist)
+func plotDistribution(est ThreePointEstimate) {
+	dist := constructPlotPoints(est)
 
 	p := plot.New()
 
 	p.Title.Text = "Test plot" 
 
-	pts := make(plotter.XYs, len(points))
+	pts := make(plotter.XYs, len(dist.points))
 	for i := range pts {
-		pts[i].X = minPoint + float64(i)*((maxPoint - minPoint) / float64(len(points)))
-		pts[i].Y = points[i]
+		pts[i].X = dist.minPoint + float64(i)*((dist.maxPoint - dist.minPoint) / float64(len(dist.points)))
+		pts[i].Y = dist.points[i]
 	}
 
 	fmt.Println(pts)
